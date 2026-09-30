@@ -8,8 +8,11 @@ A browser based vertical space shooter celebrating 34 years of «Спецвуз�
 
 ## Approved brief
 
-- Estimated target play time: 12–15 minutes; a full unassisted run has not been timed yet.
+- Estimated target play time: 7–10 minutes; a full unassisted run has not been timed yet.
 - Desktop and mobile support.
+- Five 60-second waves, three hull points, and progressive enemy volleys.
+- Rare permanent +1 bullet pickups build a wider shot fan through the first two levels; losing hull clears the stack. Temporary shield pickups absorb incoming hits while active.
+- Original chiptune music starts with play and stops on mute or pause.
 - Five boss encounters.
 - Animated SVG space backgrounds.
 - Visual direction: Russian pixel-art birthday screen with a rocket launch, starfield, bright cyan and yellow accents, and a Ростов-на-Дону skyline, based on the supplied [reference](https://ibb.co/DdGmD6g).

@@ -359,7 +359,7 @@ try {
     desktop: "normal title→play flow; keyboard movement and fire input",
     mobile: "normal title→play flow by touch; no horizontal overflow; touch drag moved the ship",
     pause: { clockBeforePause: pausedClock, clockWhilePaused: stillPausedClock, clockAfterResume: resumedState.elapsedSeconds },
-    retry: "one-HP damage showed loss dialog; retry restored five HP and resumed play",
+    retry: `one-HP damage showed loss dialog; retry restored ${retryState.maxHealth} HP and resumed play`,
     testHook: { initialState, keyboardMove: { from: keyboardBefore.player, to: keyboardAfter.player }, audio: { duringPlay: audioPlaying, muted: audioMuted, paused: audioPaused, resumed: resumedState.audio }, transitions, victory: victoryState.screen },
     renderedPlayers: { desktopDpr1: desktopRenderedPlayer, mobileDpr2And3: renderedMobilePlayers },
     browserErrors: errors,

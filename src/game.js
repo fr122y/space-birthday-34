@@ -12,7 +12,7 @@ const LEVELS = [
 const SPRITES = ["rocket.svg", "drone.svg", "scout.svg", "turret.svg", "asteroid.svg", "star.svg", "pickup-spread.svg", "pickup-rapid.svg", "pickup-shield.svg", "pickup-heal.svg", "pickup-laser.svg", "debuff-slow.svg", "debuff-jam.svg", "debuff-gravity.svg", ...LEVELS.map((_, i) => `boss-${i + 1}.svg`), ...LEVELS.map((_, i) => `bg-${i + 1}.svg`), "landing-scene.svg"];
 let W = 480;
 const H = 720;
-const BOSS_HP = [44, 68, 84, 102, 120];
+const BOSS_HP = [220, 360, 480, 600, 720];
 const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
 const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -209,29 +209,39 @@ export function initBirthdayGame(root) {
     if (score > best) { best = score; try { localStorage.setItem("spaceBirthday34Best", String(best)); } catch { /* storage can be disabled */ } root.querySelector(".best-score b").textContent = formatScore(best); }
   }
   function showBoss() {
-    boss = { x: W / 2, y: 82 * objectScale, baseY: 82 * objectScale, radius: 48 * objectScale, hp: BOSS_HP[levelIndex], maxHp: BOSS_HP[levelIndex], age: 0, fire: 1.3, pattern: 0, phase: 1, name: level().boss, phaseLabel: "ФАЗА 1", telegraph: 0, pendingAttack: false, sweepX: 0 };
+    const bossRadius = (48 + levelIndex * 6) * objectScale;
+    boss = { x: W / 2, y: 82 * objectScale, baseY: 82 * objectScale, radius: bossRadius, hp: BOSS_HP[levelIndex], maxHp: BOSS_HP[levelIndex], age: 0, fire: 1.3, pattern: 0, phase: 1, name: level().boss, phaseLabel: "ФАЗА 1", telegraph: 0, pendingAttack: false, sweepX: 0 };
     bossWarn = 2.6; enemies = []; enemyShots = []; root.querySelector(".boss-hud").classList.remove("hidden"); sound("boss"); setMessage(`ВНИМАНИЕ · ${level().boss.toUpperCase()}`, 3.2);
   }
   function playerShoot(dt) {
     fireTimer -= dt;
-    const period = player.rapid > 0 && player.jam <= 0 ? .085 : .19;
+    const period = player.rapid > 0 && player.jam <= 0 ? .14 : .27;
     if (fireTimer > 0) return;
     fireTimer = period * (player.slow > 0 ? 1.25 : 1);
     const laser = player.laser > 0;
     const count = player.bulletCount;
-    const fanStep = count > 1 ? .105 : 0;
-    for (let i = 0; i < count; i++) {
-      const angle = (i - (count - 1) / 2) * fanStep;
-      shots.push({ x: player.x + Math.sin(angle) * 10 * objectScale, y: player.y - 19 * objectScale, vx: Math.sin(angle) * 58 * objectScale, vy: -680, radius: 4 * objectScale, damage: laser ? 3 : 1, laser, life: 1.5 });
-    }
+    const fanStep = count > 1 ? .22 : 0;
+    const angles = [0];
+    for (let i = 1; i < count; i++) { const distance = Math.ceil(i / 2); angles.push((i % 2 ? -1 : 1) * distance * fanStep); }
+    for (const angle of angles) shots.push({ x: player.x + Math.sin(angle) * 10 * objectScale, y: player.y - 19 * objectScale, vx: Math.sin(angle) * 200 * objectScale, vy: -550, radius: 4 * objectScale, damage: laser ? 3 : angle === 0 ? 1 : .65, laser, life: 1.8 });
     if (!muted && Math.random() < .18) sound("shot");
   }
   function shootEnemy(x, y, angle, speed = 190, size = 5, color = "#ff719d") { const scaled = speed * objectScale; enemyShots.push({ x, y, vx: Math.cos(angle) * scaled, vy: Math.sin(angle) * scaled, radius: size * objectScale, color, life: 7 }); }
   function enemyFire(e) {
     const aim = Math.atan2(player.y - e.y, player.x - e.x);
-    if (e.kind === "scout") { shootEnemy(e.x, e.y + 10 * objectScale, aim, 165 + levelIndex * 10, 4, "#ff719d"); }
-    else if (e.kind === "turret") { for (let n = -1; n <= 1; n++) shootEnemy(e.x, e.y + 11 * objectScale, aim + n * .19, 145 + levelIndex * 8, 5, "#ffb450"); }
-    else { shootEnemy(e.x, e.y + 12 * objectScale, aim + Math.sin(e.age * 2) * .18, 140 + levelIndex * 9, 5, "#f7759b"); }
+    const color = e.kind === "turret" ? "#ffb450" : e.kind === "scout" ? "#ff719d" : "#f7759b";
+    const kindIndex = e.kind === "scout" ? 0 : e.kind === "drone" ? 1 : 2;
+    const counts = [[1, 1, 1], [2, 2, 3], [3, 3, 5], [4, 5, 5], [5, 5, 7]];
+    const count = counts[levelIndex][kindIndex];
+    const step = [0, .16, .18, .19, .21][levelIndex];
+    const baseSpeed = e.kind === "turret" ? 145 : e.kind === "scout" ? 165 : 140;
+    const speed = baseSpeed + levelIndex * 18;
+    for (let i = 0; i < count; i++) {
+      const angle = aim + (i - (count - 1) / 2) * step;
+      shootEnemy(e.x, e.y + 11 * objectScale, angle, speed, e.kind === "turret" ? 5 : 4, color);
+    }
+    if (levelIndex === 2 && e.kind === "drone") shootEnemy(e.x, e.y, aim + (e.age % 2 ? -.42 : .42), speed * .9, 4, color);
+    if (levelIndex >= 3 && e.kind === "drone") shootEnemy(e.x, e.y, aim, speed * 1.08, 4, color);
   }
   function bossAttack(dt) {
     if (!boss) return;
@@ -243,7 +253,7 @@ export function initBirthdayGame(root) {
     } else if (boss.fire <= 0) {
       const interval = boss.phase === 1 ? 1.85 - levelIndex * .08 : 1.3 - levelIndex * .05;
       boss.fire = Math.max(.85, interval);
-      boss.telegraph = .62;
+      boss.telegraph = .7;
       boss.pendingAttack = true;
       return;
     } else return;
@@ -251,13 +261,14 @@ export function initBirthdayGame(root) {
     const aim = Math.atan2(player.y - boss.y, player.x - boss.x);
     const hue = ["#ff7085", "#ffb34c", "#d28bff", "#fb8462", "#ffdf56"][levelIndex];
     if (levelIndex === 0) {
-      for (let i = -2; i <= 2; i++) shootEnemy(boss.x, boss.y + 30 * objectScale, aim + i * .31, 155, 6, hue);
+      const count = boss.phase === 1 ? 7 : 9;
+      for (let i = 0; i < count; i++) shootEnemy(boss.x, boss.y + 30 * objectScale, aim + (i - (count - 1) / 2) * .22, 185, 6, hue);
     } else if (levelIndex === 1) {
-      const y = 175 + (boss.pattern % 2) * 95;
+      const y = (175 + (boss.pattern % 2) * 95) * objectScale;
       for (let i = 0; i < 8; i++) { const x = (boss.pattern % 2 ? W - 20 : 20) + i * (W - 40) / 7; shootEnemy(x, y, boss.pattern % 2 ? 2.18 : .95, 138, 7, hue); }
       for (let i = -2; i <= 2; i++) shootEnemy(boss.x, boss.y + 25, aim + i * .15, 190, 4, hue);
     } else if (levelIndex === 2) {
-      for (let i = -2; i <= 2; i++) shootEnemy(boss.x, boss.y + 25, aim + i * .14, 230, 4, hue);
+      for (let i = -2; i <= 2; i++) shootEnemy(boss.x, boss.y + 25 * objectScale, aim + i * .18, 230, 4, hue);
       if (boss.pattern % 2 === 0) for (let i = 0; i < 12; i++) shootEnemy(boss.x, boss.y, boss.age + i * Math.PI / 6, 110, 5, "#a9a4ff");
     } else if (levelIndex === 3) {
       const drift = boss.age * 1.5;
@@ -274,19 +285,20 @@ export function initBirthdayGame(root) {
     const n = Math.random();
     const kind = n < .55 ? "scout" : n < .79 ? "drone" : "turret";
     const x = rand(35 * objectScale, W - 35 * objectScale);
-    const base = { x, y: -32 * objectScale, startX: x, age: 0, radius: (kind === "turret" ? 21 : 16) * objectScale, hp: kind === "drone" ? 2 : 1, kind, fire: rand(1.6, 2.8), phase: rand(0, 7) };
+    const baseHp = kind === "drone" ? 2 : 1;
+    const base = { x, y: -32 * objectScale, startX: x, age: 0, radius: (kind === "turret" ? 21 : 16) * objectScale, hp: baseHp + Math.floor((levelIndex + 1) / 2), kind, fire: rand(1.6, 2.8) - levelIndex * .1, phase: rand(0, 7) };
     enemies.push(base);
-    if (gameClock > 18 && Math.random() < .22) enemies.push({ ...base, x: clamp(x + rand(-90, 90) * objectScale, 30 * objectScale, W - 30 * objectScale), startX: x, y: -76 * objectScale, fire: rand(1.3, 2.3) });
+    if (gameClock > 12 && Math.random() < .2 + levelIndex * .03) enemies.push({ ...base, x: clamp(x + rand(-90, 90) * objectScale, 30 * objectScale, W - 30 * objectScale), startX: x, y: -76 * objectScale, fire: rand(1.3, 2.3) - levelIndex * .08 });
   }
   function dropPickup(x, y) {
     if (Math.random() > .12) return;
     const options = ["rapid", "shield", "heal", "laser", "slow", "jam", "gravity"];
-    const type = Math.random() < .04 && player.bulletCount < 9 ? "spread" : options[Math.floor(Math.random() * options.length)];
+    const type = Math.random() < .04 && player.bulletCount < 7 ? "spread" : options[Math.floor(Math.random() * options.length)];
     pickups.push({ x, y, type, age: 0, radius: 13 * objectScale, vy: 78 * objectScale });
   }
   function applyPickup(p) {
     const names = { spread: `ЗАЛП ×${player.bulletCount + 1}`, rapid: "СКОРОСТРЕЛЬНОСТЬ", shield: "ЩИТ", heal: `РЕМОНТ +${p.healAmount || 1}`, laser: "ЛАЗЕР", slow: "ЗАМЕДЛЕНИЕ", jam: "СБОЙ ПРИЦЕЛА", gravity: "ГРАВИТАЦИЯ" };
-    if (p.type === "spread") player.bulletCount = Math.min(9, player.bulletCount + 1);
+    if (p.type === "spread") player.bulletCount = Math.min(7, player.bulletCount + 1);
     if (p.type === "rapid") player.rapid = p.seconds ?? 10;
     if (p.type === "shield") player.shield = p.seconds ?? 8;
     if (p.type === "heal") player.hp = Math.min(player.maxHp, player.hp + (p.healAmount || 1));
@@ -312,7 +324,7 @@ export function initBirthdayGame(root) {
     if (transitionTimer > 0) { transitionTimer -= dt; if (transitionTimer <= 0) { if (levelIndex >= LEVELS.length - 1) finish(true); else { startLevel(levelIndex + 1); setMessage(`ОРБИТА ${String(levelIndex + 1).padStart(2, "0")} · ${level().name.toUpperCase()}`, 3); } } return; }
     gameClock += dt; player.invuln = Math.max(0, player.invuln - dt); invulnFlash = Math.max(0, invulnFlash - dt);
     for (const key of ["rapid", "shield", "laser", "slow", "jam", "gravity"]) player[key] = Math.max(0, player[key] - dt);
-    if (player.bulletCount < 9 && gameClock >= nextBulletAt) {
+    if (player.bulletCount < 7 && gameClock >= nextBulletAt) {
       if (!pickups.some(p => p.type === "spread")) {
         pickups.push({ x: clamp(player.x + rand(-W * .24, W * .24), 40 * objectScale, W - 40 * objectScale), y: -18 * objectScale, type: "spread", age: 0, radius: 15 * objectScale, vy: 72 * objectScale });
         setMessage("РЕДКИЙ МОДУЛЬ · +1 СНАРЯД В ЗАЛП", 2.5);
@@ -328,19 +340,22 @@ export function initBirthdayGame(root) {
     if (pointer.active) { const targetX = pointer.downX + (pointer.x - pointer.startX); const targetY = pointer.downY + (pointer.y - pointer.startY); const ease = Math.min(1, dt * 12); player.x += (targetX - player.x) * ease; player.y += (targetY - player.y) * ease; }
     player.x = clamp(player.x, 24 * objectScale, W - 24 * objectScale); player.y = clamp(player.y, 30 * objectScale, H - 30 * objectScale);
     playerShoot(dt);
-    if (!boss && bossWarn <= 0) { spawnTimer -= dt; if (spawnTimer <= 0) { spawnEnemy(); const rate = Math.max(.52, (1.55 - levelIndex * .08 - gameClock / level().time * .2) / (.8 + objectScale * .2)); spawnTimer = rand(rate * .62, rate * 1.18); } }
+    if (!boss && bossWarn <= 0) { spawnTimer -= dt; if (spawnTimer <= 0) { spawnEnemy(); const rate = Math.max(.42, (1.55 - levelIndex * .15 - gameClock / level().time * .25) / (.8 + objectScale * .2)); spawnTimer = rand(rate * .62, rate * 1.18); } }
     if (!boss && bossWarn <= 0 && gameClock >= level().time) { bossWarn = 2.5; enemies = []; enemyShots = []; setMessage(`РАДАР · ЦЕЛЬ НА ПОДХОДЕ`, 2.4); }
     for (const e of enemies) {
-      e.age += dt; e.y += (e.kind === "turret" ? 52 : 84 + levelIndex * 4) * 1.25 * objectScale * dt;
-      e.x = e.startX + Math.sin(e.age * (e.kind === "scout" ? 2.3 : 1.45) + e.phase) * (e.kind === "turret" ? 58 : 90) * objectScale;
+      e.age += dt; e.y += (e.kind === "turret" ? 52 : 84 + levelIndex * 12) * 1.25 * objectScale * dt;
+      e.x = e.startX + Math.sin(e.age * (e.kind === "scout" ? 2.3 + levelIndex * .12 : 1.45 + levelIndex * .1) + e.phase) * (e.kind === "turret" ? 58 : 90) * objectScale;
       e.x = clamp(e.x, e.radius * 1.22, W - e.radius * 1.22);
-      e.fire -= dt; if (e.fire <= 0 && e.y > 15 * objectScale && e.y < H * .72) { enemyFire(e); e.fire = rand(1.55, 2.75) - levelIndex * .08; }
+      e.fire -= dt; if (e.fire <= 0 && e.y > 15 * objectScale && e.y < H * .72) { enemyFire(e); e.fire = Math.max(.85, rand(1.55, 2.75) - levelIndex * .16); }
       if (Math.hypot(player.x - e.x, player.y - e.y) < e.radius + player.radius) { e.hp = 0; hitPlayer(); }
     }
     enemies = enemies.filter(e => e.hp > 0 && e.y < H + 60);
     if (boss) {
-      boss.age += dt; bossWarn = 0; boss.x = W / 2 + Math.sin(boss.age * (levelIndex === 3 ? 1.05 : .72)) * (W * .3); boss.y = boss.baseY + Math.sin(boss.age * 1.6) * 16 * objectScale;
-      if (levelIndex === 4) { const phase = boss.hp < boss.maxHp * .48 ? 2 : 1; if (phase !== boss.phase) { boss.phase = phase; boss.phaseLabel = phase === 2 ? "ФАЗА 2 · КОМЕТНЫЙ ШТОРМ" : "ФАЗА 1"; setMessage(phase === 2 ? "КОМАНДИР КОМЕТ · ФИНАЛЬНАЯ ФАЗА" : "", 2.5); burst(boss.x, boss.y, "#ffe975", 45); } }
+      boss.age += dt; bossWarn = 0;
+      const sweepFrequency = (levelIndex === 3 ? 1.05 : .72) * Math.min(1, 640 / W);
+      boss.x = W / 2 + Math.sin(boss.age * sweepFrequency) * (W * .3); boss.y = boss.baseY + Math.sin(boss.age * 1.6) * 16 * objectScale;
+      const phase = boss.hp < boss.maxHp * (levelIndex === 4 ? .48 : .42) ? 2 : 1;
+      if (phase !== boss.phase) { boss.phase = phase; boss.phaseLabel = phase === 2 ? levelIndex === 4 ? "ФАЗА 2 · КОМЕТНЫЙ ШТОРМ" : "ФАЗА 2 · УСКОРЕНИЕ" : "ФАЗА 1"; setMessage(phase === 2 ? `${level().boss.toUpperCase()} · ФИНАЛЬНАЯ ФАЗА` : "", 2.5); burst(boss.x, boss.y, "#ffe975", 45); }
       bossAttack(dt);
       if (boss.telegraph > 0 && boss.telegraph < .52) { /* telegraph is rendered as a warning pulse */ }
       if (Math.hypot(player.x - boss.x, player.y - boss.y) < boss.radius + player.radius) hitPlayer();
