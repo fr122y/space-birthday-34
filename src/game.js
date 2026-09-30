@@ -118,7 +118,7 @@ export function initBirthdayGame(root) {
     const oldW = W;
     const oldObjectScale = objectScale || 1;
     W = H * rect.width / rect.height;
-    objectScale = clamp(W / 640, 1, 1.8);
+    objectScale = rect.width <= 700 ? Math.max(1.4, clamp(W / 640, 1, 1.8)) : clamp(W / 640, 1, 1.8);
     const widthRatio = W / oldW;
     const objectRatio = objectScale / oldObjectScale;
     player.x *= widthRatio;
@@ -333,7 +333,7 @@ export function initBirthdayGame(root) {
     for (const e of enemies) {
       e.age += dt; e.y += (e.kind === "turret" ? 52 : 84 + levelIndex * 4) * 1.25 * objectScale * dt;
       e.x = e.startX + Math.sin(e.age * (e.kind === "scout" ? 2.3 : 1.45) + e.phase) * (e.kind === "turret" ? 58 : 90) * objectScale;
-      e.x = clamp(e.x, e.radius, W - e.radius);
+      e.x = clamp(e.x, e.radius * 1.22, W - e.radius * 1.22);
       e.fire -= dt; if (e.fire <= 0 && e.y > 15 * objectScale && e.y < H * .72) { enemyFire(e); e.fire = rand(1.55, 2.75) - levelIndex * .08; }
       if (Math.hypot(player.x - e.x, player.y - e.y) < e.radius + player.radius) { e.hp = 0; hitPlayer(); }
     }
@@ -353,7 +353,7 @@ export function initBirthdayGame(root) {
       if (boss && Math.hypot(s.x - boss.x, s.y - boss.y) < boss.radius + 8 * objectScale + s.radius) { boss.hp -= s.damage; s.life = 0; burst(s.x, s.y, level().color, 1); if (boss.hp <= 0) { bossesDefeated = Math.max(bossesDefeated, levelIndex + 1); score += 2000 + levelIndex * 1250; burst(boss.x, boss.y, level().color, 65); boss = null; enemyShots = []; transitionTimer = 3.2; renderHud(); setMessage(levelIndex === LEVELS.length - 1 ? "ПОБЕДА · ЮБИЛЕЙ СПАСЁН" : "ЦЕЛЬ УНИЧТОЖЕНА · ОРБИТА ОЧИЩЕНА", 3); sound("boss"); } continue; }
       for (const e of enemies) if (e.hp > 0 && Math.hypot(s.x - e.x, s.y - e.y) < e.radius + s.radius) { e.hp -= s.damage; s.life = 0; burst(s.x, s.y, e.kind === "turret" ? "#ffbb62" : "#6cefff", 3); if (e.hp <= 0) { score += e.kind === "turret" ? 180 : 100; burst(e.x, e.y, "#52dfff", 12); dropPickup(e.x, e.y); } break; }
     }
-    for (const p of pickups) { p.age += dt; p.y += p.vy * dt; p.x += Math.sin(p.age * 2.2) * 24 * objectScale * dt; if (Math.hypot(p.x - player.x, p.y - player.y) < p.radius + player.radius) { p.y = H + 80; applyPickup(p); } }
+    for (const p of pickups) { p.age += dt; p.y += p.vy * dt; p.x = clamp(p.x + Math.sin(p.age * 2.2) * 24 * objectScale * dt, 18 * objectScale, W - 18 * objectScale); if (Math.hypot(p.x - player.x, p.y - player.y) < p.radius + player.radius) { p.y = H + 80; applyPickup(p); } }
     pickups = pickups.filter(p => p.y < H + 35);
     for (const p of particles) { p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(.2, dt); p.vy *= Math.pow(.2, dt); p.life -= dt; }
     particles = particles.filter(p => p.life > 0);
@@ -472,7 +472,7 @@ export function initBirthdayGame(root) {
   animationFrame = requestAnimationFrame(frameLoop);
   if (testMode) {
     const testApi = {
-      getState: () => ({ screen: state, bossIndex: boss ? levelIndex : bossesDefeated >= 5 ? 5 : null, bossesDefeated, elapsedSeconds: gameClock, level: levelIndex + 1, levelDurationSeconds: level().time, health: player.hp, maxHealth: player.maxHp, bulletCount: player.bulletCount, world: { width: W, height: H }, bossHealth: boss?.hp ?? null, bossX: boss?.x ?? null, enemies: enemies.length, enemyShots: enemyShots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, radius: s.radius })), effects: { rapid: player.rapid, shield: player.shield, laser: player.laser, slow: player.slow, jam: player.jam, gravity: player.gravity }, audio: { contextState: audio?.state ?? "not-created", muted, musicPlaying: music?.isPlaying?.() ?? musicPlaying, activeVoices: null }, player: { x: player.x, y: player.y } }),
+      getState: () => ({ screen: state, bossIndex: boss ? levelIndex : bossesDefeated >= 5 ? 5 : null, bossesDefeated, elapsedSeconds: gameClock, level: levelIndex + 1, levelDurationSeconds: level().time, health: player.hp, maxHealth: player.maxHp, bulletCount: player.bulletCount, world: { width: W, height: H, objectScale }, bossHealth: boss?.hp ?? null, bossX: boss?.x ?? null, enemies: enemies.length, enemyShots: enemyShots.map(s => ({ x: s.x, y: s.y, vx: s.vx, vy: s.vy, radius: s.radius })), effects: { rapid: player.rapid, shield: player.shield, laser: player.laser, slow: player.slow, jam: player.jam, gravity: player.gravity }, audio: { contextState: audio?.state ?? "not-created", muted, musicPlaying: music?.isPlaying?.() ?? musicPlaying, activeVoices: null }, player: { x: player.x, y: player.y } }),
       snapshot: () => ({ state, level: levelIndex + 1, score, health: player.hp, boss: Boolean(boss), bossHealth: boss?.hp ?? null, gameClock, effects: { ...player }, enemies: enemies.length, player: { x: player.x, y: player.y } }),
       startLevel: n => { overlay.classList.add("hidden"); landing.classList.add("hidden"); hud.classList.remove("hidden"); state = "playing"; score = 0; bossesDefeated = Math.max(0, Number(n) - 1); startLevel(Number(n) - 1, true); },
       setHealth: n => { player.hp = clamp(Number(n), 0, player.maxHp); renderHud(); },
