@@ -83,6 +83,8 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
 .hud-right { display: flex; align-items: stretch; gap: 6px; }
 .score-block { min-width: 91px; }
 .score-value { color: #f5fbff; font-size: 18px; letter-spacing: .09em; }
+.weapon-block { display: flex; min-width: 58px; flex-direction: column; justify-content: center; gap: 3px; padding: 7px 9px; border: 1px solid rgba(255, 211, 72, .42); background: rgba(4, 20, 48, .76); }
+.bullet-count { color: var(--gold); font-family: 'Russo One', sans-serif; font-size: 18px; }
 .icon-button { display: grid; place-items: center; width: 42px; height: 42px; border: 1px solid rgba(87, 226, 255, .48); border-radius: 4px; color: var(--cyan); background: rgba(3, 19, 46, .85); cursor: pointer; pointer-events: auto; font-size: 19px; transition: color .15s ease, border-color .15s ease, background .15s ease; }
 .icon-button:hover { color: #06152b; border-color: var(--cyan); background: var(--cyan); }
 .hud-bottom { position: absolute; right: clamp(12px, 2.5vw, 30px); bottom: clamp(13px, 2.5vh, 26px); left: clamp(12px, 2.5vw, 30px); align-items: flex-end; }
@@ -159,6 +161,8 @@ button:focus-visible { outline: 3px solid #fff; outline-offset: 4px; }
   .icon-button { width: 44px; height: 44px; }
   .score-block { min-width: 73px; padding: 7px 8px; }
   .score-value { font-size: 14px; }
+  .weapon-block { min-width: 45px; padding: 6px; }
+  .bullet-count { font-size: 15px; }
   .hud-bottom { right: 10px; bottom: 12px; left: 10px; }
   .health-block, .wave-block { min-width: 98px; padding: 7px 8px; }
   .health-pips { gap: 3px; }

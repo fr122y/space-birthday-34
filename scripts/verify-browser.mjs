@@ -56,9 +56,11 @@ async function renderedPlayer(page) {
     const rect = canvas.getBoundingClientRect();
     const context = canvas.getContext("2d");
     const state = window.__SPACE_BIRTHDAY_TEST__.getState();
-    const scale = Math.min(rect.width / 480, rect.height / 800);
-    const offsetX = (rect.width - 480 * scale) / 2;
-    const offsetY = (rect.height - 800 * scale) / 2;
+    const worldHeight = state.world?.height ?? state.worldHeight ?? 720;
+    const worldWidth = state.world?.width ?? state.worldWidth ?? worldHeight * rect.width / rect.height;
+    const scale = Math.min(rect.width / worldWidth, rect.height / worldHeight);
+    const offsetX = (rect.width - worldWidth * scale) / 2;
+    const offsetY = (rect.height - worldHeight * scale) / 2;
     const expectedX = (rect.x + offsetX + state.player.x * scale) * devicePixelRatio;
     const expectedY = (rect.y + offsetY + state.player.y * scale) * devicePixelRatio;
     const halfWidth = Math.ceil(16 * scale * devicePixelRatio);
@@ -106,7 +108,7 @@ async function assertPlayerRendered(page, label) {
   assert.ok(result.hull.count > 10, `${label}: player hull color was not rendered near the expected position: ${JSON.stringify(result)}`);
   const tolerance = Math.max(2, result.scale * result.dpr * 3);
   assert.ok(Math.abs(result.hull.center.x - result.expected.x) <= tolerance, `${label}: rendered player is horizontally displaced: ${JSON.stringify(result)}`);
-  assert.ok(Math.abs(result.hull.center.y - (result.expected.y - result.scale * result.dpr * 7)) <= tolerance, `${label}: rendered player is vertically displaced: ${JSON.stringify(result)}`);
+  assert.ok(Math.abs(result.hull.center.y - result.expected.y) <= result.scale * result.dpr * 18, `${label}: rendered player is vertically displaced: ${JSON.stringify(result)}`);
   assert.ok(result.hull.bounds.minX > 0 && result.hull.bounds.maxX < result.canvas.width, `${label}: player hull is clipped horizontally: ${JSON.stringify(result)}`);
   return result;
 }
@@ -172,13 +174,38 @@ try {
   await mobile.waitForTimeout(250);
   await mobile.screenshot({ path: `${outputDir}/mobile-playing.png`, fullPage: true });
 
-  const testPage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const testPage = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   watchErrors(testPage, "test-hook");
   await testPage.goto(`${baseUrl}/?test=1`, { waitUntil: "networkidle" });
   await testPage.waitForFunction(() => typeof window.__SPACE_BIRTHDAY_TEST__?.getState === "function");
   const initialState = await getGameState(testPage);
-  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
-  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(240, 400));
+  assert.equal(initialState.levelDurationSeconds, 60, "wave duration should be one minute");
+  assert.equal(initialState.maxHealth, 3, "starting hull should have three HP");
+  assert.equal(initialState.bulletCount, 1, "new game should start with one shot per volley");
+  await clickStart(testPage);
+  await testPage.waitForFunction(() => {
+    const audio = window.__SPACE_BIRTHDAY_TEST__.getState().audio;
+    return audio?.contextState === "running" && audio.musicPlaying;
+  }, undefined, { timeout: 5_000 });
+  const audioPlaying = (await getGameState(testPage)).audio;
+  await testPage.locator(".sound-button").click();
+  await testPage.waitForFunction(() => {
+    const audio = window.__SPACE_BIRTHDAY_TEST__.getState().audio;
+    return audio?.muted && !audio.musicPlaying;
+  }, undefined, { timeout: 3_000 });
+  const audioMuted = (await getGameState(testPage)).audio;
+  await testPage.locator(".sound-button").click();
+  await testPage.waitForFunction(() => window.__SPACE_BIRTHDAY_TEST__.getState().audio.musicPlaying, undefined, { timeout: 3_000 });
+  await testPage.locator(".pause-button").click();
+  await testPage.waitForFunction(() => {
+    const state = window.__SPACE_BIRTHDAY_TEST__.getState();
+    return state.screen === "paused" && !state.audio.musicPlaying;
+  }, undefined, { timeout: 3_000 });
+  const audioPaused = (await getGameState(testPage)).audio;
+  await testPage.getByRole("button", { name: /продолжить/i }).click();
+  await testPage.waitForFunction(() => window.__SPACE_BIRTHDAY_TEST__.getState().audio.musicPlaying, undefined, { timeout: 3_000 });
+  const desktopWorld = initialState.world ?? { width: 480, height: 800 };
+  await testPage.evaluate(({ x, y }) => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(x, y), { x: desktopWorld.width / 2, y: desktopWorld.height / 2 });
   await testPage.waitForTimeout(120);
   const desktopRenderedPlayer = await assertPlayerRendered(testPage, "desktop DPR1 centered player");
   await testPage.screenshot({ path: `${outputDir}/desktop-dpr1-center.png`, fullPage: true });
@@ -201,7 +228,47 @@ try {
   const resumedState = await getGameState(testPage);
   assert.equal(resumedState.screen, "playing", "resume control did not return to play");
   assert.ok(resumedState.elapsedSeconds > stillPausedClock, "game clock did not resume");
+  assert.equal(resumedState.audio.musicPlaying, true, "resume did not restart the chiptune");
 
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
+  assert.equal((await getGameState(testPage)).levelDurationSeconds, 60, "level 1 should have a 60-second wave");
+  assert.equal((await getGameState(testPage)).bulletCount, 1, "fresh run should start with one projectile");
+  await testPage.evaluate(() => {
+    const api = window.__SPACE_BIRTHDAY_TEST__;
+    api.grantPickup("bullet");
+    api.grantPickup("rapid", 20);
+    api.grantPickup("laser", 20);
+    api.grantPickup("slow", 20);
+    api.grantPickup("jam", 20);
+    api.grantPickup("gravity", 20);
+    api.grantPickup("shield", 0.25);
+  });
+  const shielded = await getGameState(testPage);
+  assert.equal(shielded.bulletCount, 2, "permanent bullet pickup did not add one projectile");
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.damagePlayer());
+  const absorbedHit = await getGameState(testPage);
+  assert.equal(absorbedHit.health, shielded.health, "temporary shield did not absorb a hit");
+  assert.equal(absorbedHit.bulletCount, 2, "shield absorption reset the permanent bullet upgrade");
+  assert.ok(absorbedHit.effects.shield > 0, "shield did not remain active after absorbing a hit");
+  await testPage.waitForFunction(() => window.__SPACE_BIRTHDAY_TEST__.getState().effects.shield === 0, undefined, { timeout: 2_000 });
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.damagePlayer());
+  const afterDamage = await getGameState(testPage);
+  assert.equal(afterDamage.health, shielded.health - 1, "unshielded hit did not remove one HP");
+  assert.equal(afterDamage.bulletCount, 1, "HP loss did not reset the permanent bullet upgrade");
+  assert.ok(Object.values(afterDamage.effects).every((remaining) => remaining === 0), "HP loss did not clear temporary buffs/debuffs");
+
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.grantPickup("bullet"));
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.advanceToBoss());
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.defeatCurrentBoss());
+  const nextLevel = await getGameState(testPage);
+  assert.equal(nextLevel.level, 2, "boss clear did not advance to level 2");
+  assert.equal(nextLevel.bulletCount, 2, "permanent bullet upgrade was lost during a level transition");
+  assert.equal(nextLevel.levelDurationSeconds, 60, "level 2 should have a 60-second wave");
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.grantPickup("bullet"));
+  assert.equal((await getGameState(testPage)).bulletCount, 3, "second bullet pickup did not stack in level 2");
+
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
   await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setHealth(1));
   await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.damagePlayer());
   await testPage.getByRole("button", { name: /повторить орбиту/i }).waitFor({ state: "visible" });
@@ -211,7 +278,8 @@ try {
   await testPage.getByRole("button", { name: /повторить орбиту/i }).click();
   await testPage.waitForFunction(() => window.__SPACE_BIRTHDAY_TEST__.getState().screen === "playing");
   const retryState = await getGameState(testPage);
-  assert.equal(retryState.health, 5, "retry did not restore the ship's health");
+  assert.equal(retryState.health, initialState.maxHealth, "retry did not restore the ship's starting health");
+  assert.equal(retryState.bulletCount, 1, "retry did not reset permanent bullet upgrades");
   assert.ok(Object.values(retryState.effects).every((remaining) => remaining === 0), "retry did not clear status effects");
   await testPage.screenshot({ path: `${outputDir}/retry-playing.png`, fullPage: true });
 
@@ -252,7 +320,8 @@ try {
     await mobileTest.goto(`${baseUrl}/?test=1`, { waitUntil: "networkidle" });
     await mobileTest.waitForFunction(() => typeof window.__SPACE_BIRTHDAY_TEST__?.getState === "function");
     await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
-    for (const [label, x] of [["center", 240], ["left edge", 24], ["right edge", 456]]) {
+    const world = (await getGameState(mobileTest)).world ?? { width: 480, height: 800 };
+    for (const [label, x] of [["center", world.width / 2], ["left edge", world.width * 0.05], ["right edge", world.width * 0.95]]) {
       await mobileTest.evaluate((positionX) => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(positionX, 400), x);
       await mobileTest.waitForTimeout(140);
       const rendered = await assertPlayerRendered(mobileTest, `mobile DPR${dpr} ${label}`);
@@ -260,7 +329,7 @@ try {
       if (label === "center") await mobileTest.screenshot({ path: `${outputDir}/mobile-dpr${dpr}-center.png`, fullPage: true });
     }
 
-    await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(240, 400));
+    await mobileTest.evaluate(({ x, y }) => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(x, y), { x: world.width / 2, y: world.height / 2 });
     const mobileBefore = await getGameState(mobileTest);
     const canvasBox = await mobileTest.locator("canvas.game-canvas").boundingBox();
     assert.ok(canvasBox, `mobile DPR${dpr} canvas has no layout box`);
@@ -291,7 +360,7 @@ try {
     mobile: "normal title→play flow by touch; no horizontal overflow; touch drag moved the ship",
     pause: { clockBeforePause: pausedClock, clockWhilePaused: stillPausedClock, clockAfterResume: resumedState.elapsedSeconds },
     retry: "one-HP damage showed loss dialog; retry restored five HP and resumed play",
-    testHook: { initialState, keyboardMove: { from: keyboardBefore.player, to: keyboardAfter.player }, transitions, victory: victoryState.screen },
+    testHook: { initialState, keyboardMove: { from: keyboardBefore.player, to: keyboardAfter.player }, audio: { duringPlay: audioPlaying, muted: audioMuted, paused: audioPaused, resumed: resumedState.audio }, transitions, victory: victoryState.screen },
     renderedPlayers: { desktopDpr1: desktopRenderedPlayer, mobileDpr2And3: renderedMobilePlayers },
     browserErrors: errors,
   }, null, 2));
