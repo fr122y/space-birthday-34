@@ -50,6 +50,67 @@ async function getGameState(page) {
   return page.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.getState());
 }
 
+async function renderedPlayer(page) {
+  return page.evaluate(() => {
+    const canvas = document.querySelector("canvas.game-canvas");
+    const rect = canvas.getBoundingClientRect();
+    const context = canvas.getContext("2d");
+    const state = window.__SPACE_BIRTHDAY_TEST__.getState();
+    const scale = Math.min(rect.width / 480, rect.height / 800);
+    const offsetX = (rect.width - 480 * scale) / 2;
+    const offsetY = (rect.height - 800 * scale) / 2;
+    const expectedX = (rect.x + offsetX + state.player.x * scale) * devicePixelRatio;
+    const expectedY = (rect.y + offsetY + state.player.y * scale) * devicePixelRatio;
+    const halfWidth = Math.ceil(16 * scale * devicePixelRatio);
+    const halfHeight = Math.ceil(20 * scale * devicePixelRatio);
+    const left = Math.max(0, Math.floor(expectedX - halfWidth));
+    const right = Math.min(canvas.width, Math.ceil(expectedX + halfWidth));
+    const top = Math.max(0, Math.floor(expectedY - halfHeight));
+    const bottom = Math.min(canvas.height, Math.ceil(expectedY + halfHeight));
+    const pixels = context.getImageData(left, top, right - left, bottom - top);
+    let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let minX = canvas.width;
+    let minY = canvas.height;
+    let maxX = 0;
+    let maxY = 0;
+    for (let y = 0; y < pixels.height; y += 1) {
+      for (let x = 0; x < pixels.width; x += 1) {
+        const i = (y * pixels.width + x) * 4;
+        if (pixels.data[i] !== 82 || pixels.data[i + 1] !== 229 || pixels.data[i + 2] !== 243 || pixels.data[i + 3] < 240) continue;
+        const px = left + x;
+        const py = top + y;
+        count += 1;
+        sumX += px;
+        sumY += py;
+        minX = Math.min(minX, px);
+        maxX = Math.max(maxX, px);
+        minY = Math.min(minY, py);
+        maxY = Math.max(maxY, py);
+      }
+    }
+    return {
+      dpr: devicePixelRatio,
+      player: state.player,
+      canvas: { width: canvas.width, height: canvas.height, rect: { x: rect.x, y: rect.y, width: rect.width, height: rect.height } },
+      expected: { x: expectedX, y: expectedY },
+      hull: { count, center: count ? { x: sumX / count, y: sumY / count } : null, bounds: { minX, minY, maxX, maxY } },
+      scale,
+    };
+  });
+}
+
+async function assertPlayerRendered(page, label) {
+  const result = await renderedPlayer(page);
+  assert.ok(result.hull.count > 10, `${label}: player hull color was not rendered near the expected position: ${JSON.stringify(result)}`);
+  const tolerance = Math.max(2, result.scale * result.dpr * 3);
+  assert.ok(Math.abs(result.hull.center.x - result.expected.x) <= tolerance, `${label}: rendered player is horizontally displaced: ${JSON.stringify(result)}`);
+  assert.ok(Math.abs(result.hull.center.y - (result.expected.y - result.scale * result.dpr * 7)) <= tolerance, `${label}: rendered player is vertically displaced: ${JSON.stringify(result)}`);
+  assert.ok(result.hull.bounds.minX > 0 && result.hull.bounds.maxX < result.canvas.width, `${label}: player hull is clipped horizontally: ${JSON.stringify(result)}`);
+  return result;
+}
+
 async function clickStart(page, { touch = false } = {}) {
   const startButton = page.getByRole("button", { name: /играть|начать|старт/i }).first();
   await startButton.waitFor({ state: "visible", timeout: 8_000 });
@@ -117,6 +178,10 @@ try {
   await testPage.waitForFunction(() => typeof window.__SPACE_BIRTHDAY_TEST__?.getState === "function");
   const initialState = await getGameState(testPage);
   await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
+  await testPage.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(240, 400));
+  await testPage.waitForTimeout(120);
+  const desktopRenderedPlayer = await assertPlayerRendered(testPage, "desktop DPR1 centered player");
+  await testPage.screenshot({ path: `${outputDir}/desktop-dpr1-center.png`, fullPage: true });
   await testPage.locator("canvas.game-canvas").focus();
   const keyboardBefore = await getGameState(testPage);
   await testPage.keyboard.down("ArrowRight");
@@ -175,33 +240,47 @@ try {
   await testPage.waitForFunction(() => window.__SPACE_BIRTHDAY_TEST__.getState().screen === "playing");
   assert.equal((await getGameState(testPage)).level, 1, "victory replay did not start the first orbit");
 
-  const mobileTest = await browser.newPage({
-    viewport: { width: 390, height: 844 },
-    deviceScaleFactor: 2,
-    isMobile: true,
-    hasTouch: true,
-  });
-  watchErrors(mobileTest, "mobile-test-hook");
-  await mobileTest.goto(`${baseUrl}/?test=1`, { waitUntil: "networkidle" });
-  await mobileTest.waitForFunction(() => typeof window.__SPACE_BIRTHDAY_TEST__?.getState === "function");
-  await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
-  await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(220, 600));
-  const mobileBefore = await getGameState(mobileTest);
-  const canvasBox = await mobileTest.locator("canvas.game-canvas").boundingBox();
-  assert.ok(canvasBox, "mobile canvas has no layout box");
-  const startX = canvasBox.x + (mobileBefore.player.x / 480) * canvasBox.width;
-  const startY = canvasBox.y + (mobileBefore.player.y / 800) * canvasBox.height;
-  const touch = await mobileTest.context().newCDPSession(mobileTest);
-  await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: startX, y: startY, id: 1 }] });
-  for (let step = 1; step <= 4; step += 1) {
-    await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: startX + step * 12, y: startY - step * 8, id: 1 }] });
-    await mobileTest.waitForTimeout(45);
+  const renderedMobilePlayers = [];
+  for (const dpr of [2, 3]) {
+    const mobileTest = await browser.newPage({
+      viewport: { width: 390, height: 844 },
+      deviceScaleFactor: dpr,
+      isMobile: true,
+      hasTouch: true,
+    });
+    watchErrors(mobileTest, `mobile-dpr${dpr}-test-hook`);
+    await mobileTest.goto(`${baseUrl}/?test=1`, { waitUntil: "networkidle" });
+    await mobileTest.waitForFunction(() => typeof window.__SPACE_BIRTHDAY_TEST__?.getState === "function");
+    await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.startLevel(1));
+    for (const [label, x] of [["center", 240], ["left edge", 24], ["right edge", 456]]) {
+      await mobileTest.evaluate((positionX) => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(positionX, 400), x);
+      await mobileTest.waitForTimeout(140);
+      const rendered = await assertPlayerRendered(mobileTest, `mobile DPR${dpr} ${label}`);
+      renderedMobilePlayers.push({ dpr, label, player: rendered.player, renderedCenter: rendered.hull.center, bounds: rendered.hull.bounds, canvas: rendered.canvas });
+      if (label === "center") await mobileTest.screenshot({ path: `${outputDir}/mobile-dpr${dpr}-center.png`, fullPage: true });
+    }
+
+    await mobileTest.evaluate(() => window.__SPACE_BIRTHDAY_TEST__.setPlayerPosition(240, 400));
+    const mobileBefore = await getGameState(mobileTest);
+    const canvasBox = await mobileTest.locator("canvas.game-canvas").boundingBox();
+    assert.ok(canvasBox, `mobile DPR${dpr} canvas has no layout box`);
+    const startX = canvasBox.x + canvasBox.width / 2;
+    const startY = canvasBox.y + canvasBox.height / 2;
+    const touch = await mobileTest.context().newCDPSession(mobileTest);
+    await touch.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x: startX, y: startY, id: 1 }] });
+    for (let step = 1; step <= 4; step += 1) {
+      await touch.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: startX + step * 12, y: startY - step * 8, id: 1 }] });
+      await mobileTest.waitForTimeout(45);
+    }
+    await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
+    const mobileAfter = await getGameState(mobileTest);
+    assert.ok(mobileAfter.player.x > mobileBefore.player.x + 12, `mobile DPR${dpr} touch drag did not move the ship horizontally`);
+    assert.ok(mobileAfter.player.y < mobileBefore.player.y - 8, `mobile DPR${dpr} touch drag did not move the ship vertically`);
+    await mobileTest.waitForTimeout(100);
+    await assertPlayerRendered(mobileTest, `mobile DPR${dpr} touch-moved player`);
+    await mobileTest.screenshot({ path: `${outputDir}/mobile-dpr${dpr}-touch-play.png`, fullPage: true });
+    await mobileTest.close();
   }
-  await touch.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
-  const mobileAfter = await getGameState(mobileTest);
-  assert.ok(mobileAfter.player.x > mobileBefore.player.x + 12, "touch drag did not move the ship horizontally");
-  assert.ok(mobileAfter.player.y < mobileBefore.player.y - 8, "touch drag did not move the ship vertically");
-  await mobileTest.screenshot({ path: `${outputDir}/mobile-touch-play.png`, fullPage: true });
 
   assert.deepEqual(errors, [], `browser errors detected:\n${errors.join("\n")}`);
   console.log(JSON.stringify({
@@ -213,6 +292,7 @@ try {
     pause: { clockBeforePause: pausedClock, clockWhilePaused: stillPausedClock, clockAfterResume: resumedState.elapsedSeconds },
     retry: "one-HP damage showed loss dialog; retry restored five HP and resumed play",
     testHook: { initialState, keyboardMove: { from: keyboardBefore.player, to: keyboardAfter.player }, transitions, victory: victoryState.screen },
+    renderedPlayers: { desktopDpr1: desktopRenderedPlayer, mobileDpr2And3: renderedMobilePlayers },
     browserErrors: errors,
   }, null, 2));
 } finally {

@@ -107,12 +107,13 @@ export function initBirthdayGame(root) {
   function newPlayer() { return { x: W / 2, y: H * .78, radius: 13, hp: 5, maxHp: 5, invuln: 0, spread: 0, rapid: 0, shield: 0, laser: 0, slow: 0, jam: 0, gravity: 0 }; }
   function resize() {
     const rect = frame.getBoundingClientRect();
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(window.devicePixelRatio || 1, 3);
     canvas.width = Math.round(rect.width * dpr);
     canvas.height = Math.round(rect.height * dpr);
-    worldScale = Math.min(canvas.width / W, canvas.height / H);
-    worldX = (canvas.width - W * worldScale) / 2;
-    worldY = (canvas.height - H * worldScale) / 2;
+    worldScale = Math.min(rect.width / W, rect.height / H);
+    worldX = (rect.width - W * worldScale) / 2;
+    worldY = (rect.height - H * worldScale) / 2;
+    ctx.imageSmoothingEnabled = false;
     ctx.setTransform(dpr * worldScale, 0, 0, dpr * worldScale, dpr * worldX, dpr * worldY);
   }
   const resizeObserver = new ResizeObserver(resize);
@@ -413,7 +414,7 @@ export function initBirthdayGame(root) {
     ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(Math.sin(p.age * 3) * .08); ctx.fillStyle = "#071a3b"; ctx.strokeStyle = colors[p.type]; ctx.lineWidth = 2; ctx.beginPath(); ctx.roundRect(-11, -11, 22, 22, 5); ctx.fill(); ctx.stroke(); ctx.fillStyle = colors[p.type]; ctx.font = "bold 14px monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(({ spread: "S", rapid: "R", shield: "◇", heal: "+", laser: "L", slow: "↓", jam: "!", gravity: "G" })[p.type], 0, 1); ctx.restore();
   }
   function firework(x, y) { const colors = ["#5ceaff", "#ffe05a", "#ff72a1", "#a994ff", "#9dffb0"]; const color = colors[Math.floor(Math.random() * colors.length)]; for (let i = 0; i < 25; i++) { const a = i / 25 * Math.PI * 2, speed = rand(35, 135); fireworks.push({ x, y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: rand(.8, 1.7), color }); } }
-  function toCanvasPoint(event) { const r = canvas.getBoundingClientRect(); const bx = (event.clientX - r.left) * dpr; const by = (event.clientY - r.top) * dpr; return { x: (bx - worldX) / worldScale, y: (by - worldY) / worldScale }; }
+  function toCanvasPoint(event) { const r = canvas.getBoundingClientRect(); const cssX = event.clientX - r.left; const cssY = event.clientY - r.top; return { x: (cssX - worldX) / worldScale, y: (cssY - worldY) / worldScale }; }
   canvas.addEventListener("pointerdown", e => { if (e.pointerType === "mouse" && state !== "playing") return; canvas.setPointerCapture(e.pointerId); const p = toCanvasPoint(e); pointer = { active: true, id: e.pointerId, x: p.x, y: p.y, downX: player.x, downY: player.y, startX: p.x, startY: p.y }; root.querySelector(".mobile-controls").classList.add("touching"); root.querySelector(".touch-ring").style.left = `${p.x / W * 100}%`; root.querySelector(".touch-ring").style.top = `${p.y / H * 100}%`; });
   canvas.addEventListener("pointermove", e => { if (pointer.active && pointer.id === e.pointerId) { const p = toCanvasPoint(e); pointer.x = p.x; pointer.y = p.y; } });
   const stopPointer = e => { if (pointer.id === e.pointerId) { pointer.active = false; pointer.id = null; root.querySelector(".mobile-controls").classList.remove("touching"); } };
@@ -444,7 +445,7 @@ export function initBirthdayGame(root) {
       damagePlayer: () => hitPlayer(),
       pause: () => pause(),
       resume: () => pause(false),
-      setPlayerPosition: (x, y) => { player.x = clamp(Number(x), 20, W - 20); player.y = clamp(Number(y), 70, H - 35); },
+      setPlayerPosition: (x, y) => { player.x = clamp(Number(x), 24, W - 24); player.y = clamp(Number(y), 78, H - 48); },
       close: () => { delete window.__gameTest; }
     };
     window.__SPACE_BIRTHDAY_TEST__ = testApi;
